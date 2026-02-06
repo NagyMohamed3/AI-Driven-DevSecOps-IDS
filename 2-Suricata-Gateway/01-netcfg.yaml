@@ -1,0 +1,31 @@
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    ens3: #e0
+      dhcp4: true
+      nameservers:
+        addresses: [8.8.8.8, 8.8.4.4]
+
+    ens4: #e1
+      dhcp4: no
+      addresses:
+        - 172.16.1.1/24
+
+    ens5: #e2
+      dhcp4: no
+      addresses:
+        - 172.18.1.1/24 
+
+    ens8: #
+      dhcp4: true
+    ens7:
+      dhcp4: true
+    ens9: #
+      dhcp4: true
+    ens6:
+      dhcp4: true
+
+
+
+

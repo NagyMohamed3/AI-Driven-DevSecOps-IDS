@@ -24,18 +24,20 @@ jobs:
         run: bandit -r ansible/
 
   # 2. فحص ملفات Ansible (site.yml و block_attacker وغيرها)
+    # 2. فحص ملفات Ansible
   Ansible-Checks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Install Ansible
-        run: pip install ansible ansible-lint
+        run: pip install ansible
       - name: Check Ansible Syntax
         run: |
-          ansible-playbook ansible/site.yml --syntax-check
-          ansible-playbook ansible/block_attacker.yml --syntax-check
-          ansible-playbook ansible/trap_attacker.yml --syntax-check
-
+          # هندخل جوه فولدر ansible عشان يشوف الـ roles والـ cfg
+          cd ansible
+          ansible-playbook site.yml --syntax-check
+          ansible-playbook block_attacker.yml --syntax-check
+          ansible-playbook trap_attacker.yml --syntax-check
   # 3. فحص التسريبات والأمان (Gitleaks)
   Secrets-Scan:
     runs-on: ubuntu-latest

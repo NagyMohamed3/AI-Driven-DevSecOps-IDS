@@ -1,0 +1,49 @@
+name: DevSecOps CI Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  # 1. فحص ملفات البايثون (عندك webhook_listener و log_exporter)
+  Python-Checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      - name: Install Linting Tools
+        run: pip install flake8 bandit
+      - name: Code Style Check (flake8)
+        run: flake8 ansible/ --count --select=E9,F63,F7,F82 --show-source --statistics
+      - name: Security Scan (Bandit)
+        run: bandit -r ansible/
+
+  # 2. فحص ملفات Ansible (site.yml و block_attacker وغيرها)
+  Ansible-Checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ansible
+        run: pip install ansible ansible-lint
+      - name: Check Ansible Syntax
+        run: |
+          ansible-playbook ansible/site.yml --syntax-check
+          ansible-playbook ansible/block_attacker.yml --syntax-check
+          ansible-playbook ansible/trap_attacker.yml --syntax-check
+
+  # 3. فحص التسريبات والأمان (Gitleaks)
+  Secrets-Scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Gitleaks Scan
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

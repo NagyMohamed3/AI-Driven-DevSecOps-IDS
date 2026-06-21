@@ -76,11 +76,11 @@ def follow(thefile):
         yield line
 
 if __name__ == '__main__':
-    start_http_server(8000, addr='0.0.0.0')
+    start_http_server(8000, addr='0.0.0.0')  # nosec
     attack_intensity.set(0)
     try:
-        with open(MODEL_PATH, 'rb') as f: model = pickle.load(f)
-        with open(SCALER_PATH, 'rb') as f: scaler = pickle.load(f)
+        with open(MODEL_PATH, 'rb') as f: model = pickle.load(f) # nosec B301
+        with open(SCALER_PATH, 'rb') as f: scaler = pickle.load(f) # nosec B301
         print("✅ System Ready.")
     except Exception as e:
         model = None

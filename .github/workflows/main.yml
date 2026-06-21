@@ -1,4 +1,4 @@
-name: DevSecOps & AI-IDS Pipeline
+name: "DevSecOps Pipeline: AI-IDS & GNS3 Automation"
 
 on:
   push:
@@ -7,72 +7,88 @@ on:
     branches: [ "main" ]
 
 jobs:
-  # 1. مرحلة فحص البايثون (جودة وأمان الكود)
- Python-Checks:
+  # --- المرحلة الأولى: فحص جودة وأمان كود البايثون ---
+  Python-Security-Audit:
+    name: "Python Quality & Security Audit"
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: "Step 1: Checkout Code"
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5 # حدثنا النسخة لـ v5 عشان تحل مشاكل الـ Node
+      - name: "Step 2: Set up Python Environment"
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-          cache: 'pip' # <--- ميزة الـ Caching عشان الـ Pipeline يبقى أسرع في المرات الجاية
+          cache: 'pip'
 
-      - name: Install Security Tools
-        # ضفنا pip-audit عشان نفحص ثغرات المكتبات
+      - name: "Step 3: Install Security & Audit Tools"
         run: |
           python -m pip install --upgrade pip
-          pip install flake8 bandit pip-audit 
+          pip install flake8 bandit pip-audit
 
-      - name: Code Style Check (flake8)
-        # بيفحص لو فيه غلطة تخلي الكود ما يشتغلش أصلاً
+      - name: "Step 4: Linting (Code Style Check)"
         run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
-      - name: Dependency Vulnerability Audit (pip-audit)
-        # دي الخطوة "الاحترافية": بتفحص لو Flask أو أي مكتبة تانية فيها ثغرة أمنية معروفة
+      - name: "Step 5: Dependency Audit (Checking for CVEs)"
         continue-on-error: true
         run: pip-audit
 
-      - name: Static Analysis Security Testing (Bandit)
-        # بيفحص كودك إنت لو فيه ثغرات (زي اللي لقاها قبل كدة)
+      - name: "Step 6: SAST (Static Analysis Security Testing)"
         continue-on-error: true
         run: bandit -r . -ll
 
-  
-  
-    # 2. فحص ملفات Ansible
-  Ansible-Checks:
+  # --- المرحلة الثانية: فحص ملفات Ansible (تعتمد على نجاح المرحلة الأولى) ---
+  Ansible-Validation:
+    name: "Ansible Syntax & Environment Fix"
+    needs: Python-Security-Audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Install Ansible
+      - name: "Step 1: Checkout Code"
+        uses: actions/checkout@v4
+
+      - name: "Step 2: Install Ansible"
         run: pip install ansible
 
-      # خطوة "السحر" اللي هتمسح أي UTF-16 أو رموز مخفية
-      - name: Force Fix Encoding (Anti-Windows)
+      - name: "Step 3: Fix Windows Encoding (dos2unix)"
         run: |
           sudo apt-get install -y dos2unix
           find ansible -type f -exec dos2unix {} \;
-          # مسح أي رموز مخفية في بداية الملفات
           find ansible -type f -exec sed -i '1s/^\xEF\xBB\xBF//' {} \;
 
-      - name: Check Ansible Syntax
+      - name: "Step 4: Ansible Syntax Check"
+        working-directory: ./ansible
         run: |
-          cd ansible
           ansible-playbook site.yml --syntax-check
           ansible-playbook block_attacker.yml --syntax-check
           ansible-playbook trap_attacker.yml --syntax-check
-  # 3. فحص التسريبات والأمان (Gitleaks)
-  Secrets-Scan:
+
+  # --- المرحلة الثالثة: فحص التسريبات (Secrets Scan) ---
+  Secrets-Scanning:
+    name: "Gitleaks Secrets Scan"
+    needs: Ansible-Validation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: "Step 1: Checkout Code"
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Gitleaks Scan
+
+      - name: "Step 2: Run Gitleaks"
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # --- المرحلة الرابعة: التنفيذ (Deployment) - ده اللي بيتربط بالـ GNS3 ---
+  # ملاحظة: دي هتشتغل بس لو عندك Self-hosted Runner شغال ومربوط بـ GNS3
+  Deploy-to-GNS3:
+    name: "Deploy to GNS3 Environment"
+    needs: Secrets-Scanning
+    runs-on: self-hosted # <--- تأكد إن الـ Runner بتاعك متسطب وجاهز
+    steps:
+      - name: "Step 1: Checkout Code"
+        uses: actions/checkout@v4
+
+      - name: "Step 2: Execute Ansible Playbook"
+        run: |
+          cd ansible
+          ansible-playbook -i inventory.ini site.yml

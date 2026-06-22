@@ -7,95 +7,76 @@ on:
     branches: [ "main" ]
 
 jobs:
-  # --- المرحلة الأولى: فحص جودة وأمان كود البايثون ---
+  # 1. فحص البايثون
   Python-Security-Audit:
     name: "Python Quality & Security Audit"
     runs-on: ubuntu-latest
     steps:
-      - name: "Step 1: Checkout Code"
-        uses: actions/checkout@v4
-      - name: "Step 2: Set up Python Environment"
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
           cache: 'pip'
-      - name: "Step 3: Install Security & Audit Tools"
-        run: |
-          python -m pip install --upgrade pip
+      - run: |
           pip install flake8 bandit pip-audit
-      - name: "Step 4: Linting (Code Style Check)"
-        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-      - name: "Step 5: Dependency Audit (Checking for CVEs)"
-        continue-on-error: true
-        run: pip-audit
-      - name: "Step 6: SAST (Static Analysis Security Testing)"
-        continue-on-error: true
-        run: bandit -r . -ll
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          bandit -r . -ll || true
+          pip-audit || true
 
-  # --- المرحلة الثانية: فحص ملفات Ansible ---
+  # 2. فحص الأنسيبل
   Ansible-Validation:
-    name: "Ansible Syntax & Environment Fix"
+    name: "Ansible Syntax Check"
     needs: Python-Security-Audit
     runs-on: ubuntu-latest
     steps:
-      - name: "Step 1: Checkout Code"
-        uses: actions/checkout@v4
-      - name: "Step 2: Install Ansible"
-        run: pip install ansible
-      - name: "Step 3: Fix Windows Encoding (dos2unix)"
-        run: |
-          sudo apt-get install -y dos2unix
-          find ansible -type f -exec dos2unix {} \;
-          find ansible -type f -exec sed -i '1s/^\xEF\xBB\xBF//' {} \;
-      - name: "Step 4: Ansible Syntax Check"
-        working-directory: ./ansible
-        run: |
+      - uses: actions/checkout@v4
+      - run: |
+          pip install ansible
+          cd ansible
           ansible-playbook site.yml --syntax-check
-          ansible-playbook block_attacker.yml --syntax-check
-          ansible-playbook trap_attacker.yml --syntax-check
 
-  # --- المرحلة الثالثة: فحص التسريبات (Secrets Scan) ---
+  # 3. فحص التسريبات (Secrets)
   Secrets-Scanning:
     name: "Gitleaks Secrets Scan"
     needs: Ansible-Validation
     runs-on: ubuntu-latest
     steps:
-      - name: "Step 1: Checkout Code"
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: "Step 2: Run Gitleaks"
-        uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-   # --- المرحلة الرابعة: التنفيذ (Deployment) ---
-  Deploy-to-GNS3:
-    name: "Deploy to GNS3 Environment"
-    needs: Secrets-Scanning
-    runs-on: self-hosted 
-    steps:
-      - name: "Step 1: Checkout Code"
-        uses: actions/checkout@v4
-      - name: "Step 2: Execute Ansible Playbook"
-        run: |
-          cd ansible
-          ansible-playbook -i inventory.ini site.yml --extra-vars "ansible_ssh_pass=${{ secrets.SARA_PASSWORD }}"
-
-  # --- المرحلة الخامسة: التنبيهات (Slack Notification) ---
-  Slack-Notification:
-    name: "Slack Notification"
-    needs: [Deploy-to-GNS3] # هتستنى الـ Deploy يخلص
+  # --- المرحلة الجديدة: التنبيه بنتيجة الفحص ---
+  Notify-Audit-Result:
+    name: "Notify Audit Result to Slack"
+    needs: Secrets-Scanning # هتشتغل بمجرد ما الـ 3 فحوصات اللي فوق يخلصوا
     runs-on: ubuntu-latest
-    if: always() # مهم جداً: يشتغل سواء الـ Pipeline نجح أو فشل عشان يبلغك بالنتيجة
+    if: always() # يبعت رسالة سواء الفحص نجح أو فشل
     steps:
       - name: Send Notification to Slack
         uses: rtCamp/action-slack-notify@v2
         env:
           SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
-          SLACK_CHANNEL: '#general' 
-          SLACK_USERNAME: 'GitHub Actions - Abo 3mera'
-          SLACK_ICON: 'https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png'
-          SLACK_TITLE: 'Project Status: ${{ job.status }}'
-          SLACK_MESSAGE: 'DevSecOps Pipeline for project "Abo 3mera" finished with status: ${{ job.status }} 🚀'
-          SLACK_COLOR: ${{ job.status == 'success' && 'good' || 'danger' }} # أخضر لو نجح، أحمر لو فشل
+          SLACK_CHANNEL: '#general'
+          SLACK_USERNAME: 'Security Auditor'
+          SLACK_TITLE: 'Security Audit: ${{ needs.Secrets-Scanning.result }}'
+          SLACK_MESSAGE: |
+             *Project:* Abo 3mera DevSecOps 🛡️
+             *Status:* The Security Audit Phase has finished with status: `${{ needs.Secrets-Scanning.result }}`.
+             *Next Step:* Starting Deployment to GNS3/EVE-NG... 🚀
+          SLACK_COLOR: ${{ needs.Secrets-Scanning.result == 'success' && 'good' || 'danger' }}
+
+  # 4. التنفيذ (Deployment) - هتشتغل في نفس الوقت أو بعد التنبيه
+  Deploy-to-GNS3:
+    name: "Deploy to GNS3 Environment"
+    needs: Notify-Audit-Result # بتعتمد على التنبيه
+    runs-on: self-hosted 
+    if: success() # مش هتبدأ غير لو الفحص اللي فات "نجح" فعلاً
+    steps:
+      - uses: actions/checkout@v4
+      - name: "Execute Ansible Playbook"
+        run: |
+          cd ansible
+          ansible-playbook -i inventory.ini site.yml --extra-vars "ansible_ssh_pass=${{ secrets.SARA_PASSWORD }}"

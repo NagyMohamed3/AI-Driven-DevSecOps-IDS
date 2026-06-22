@@ -1,41 +1,93 @@
-  # --- المرحلة الأولى: كل الفحوصات الأمنية (Security Checks) ---
+name: "DevSecOps Pipeline: AI-IDS & GNS3 Automation"
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  # --- المرحلة الأولى: الفحص الأمني الشامل (Security Audit) ---
   Security-Audit:
     name: "Run All Security Checks"
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: "Step 1: Checkout Code"
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Set up Python
+      - name: "Step 2: Set up Python Environment"
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+          cache: 'pip' # تسريع التحميل في المرات القادمة
 
-      - name: Install Tools
+      - name: "Step 3: Install Security & Audit Tools"
         run: |
           sudo apt-get update && sudo apt-get install -y dos2unix
+          python -m pip install --upgrade pip
           pip install flake8 bandit pip-audit ansible
 
-      - name: Force Fix Encoding (Anti-Windows Fix)
-        # الخطوة دي بتمسح أي حروف غريبة أو تنسيق ويندوز بيبوظ الـ Ansible
+      - name: "Step 4: Fix Windows Encoding (Anti-Windows Fix)"
+        # الخطوة دي بتنظف ملفات الـ Ansible من أي حروف مخفية بتبوظ الشغل على لينكس
         run: |
           find ansible -type f -exec dos2unix {} \;
           find ansible -type f -exec sed -i '1s/^\xEF\xBB\xBF//' {} \;
 
-      - name: Python Lint & Security Scan
-        run: |
-          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-          bandit -r . -ll || true
-          pip-audit || true
+      - name: "Step 5: Code Style Check (flake8)"
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
-      - name: Ansible Syntax Check
+      - name: "Step 6: Dependency Audit (pip-audit)"
+        continue-on-error: true
+        run: pip-audit
+
+      - name: "Step 7: Static Analysis (Bandit)"
+        continue-on-error: true
+        run: bandit -r . -ll
+
+      - name: "Step 8: Ansible Syntax Check"
+        working-directory: ./ansible
         run: |
-          cd ansible
           ansible-playbook site.yml --syntax-check
+          ansible-playbook block_attacker.yml --syntax-check
+          ansible-playbook trap_attacker.yml --syntax-check
 
-      - name: Gitleaks Secrets Scan
+      - name: "Step 9: Secrets Scanning (Gitleaks)"
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # --- المرحلة الثانية: التنبيه المباشر على Slack بنتيجة الفحص ---
+  Slack-Direct-Notify:
+    name: "Direct Slack Notification"
+    needs: Security-Audit
+    runs-on: ubuntu-latest
+    if: always() # يبعت رسالة سواء نجح أو فشل
+    steps:
+      - name: Send Notification to Slack
+        uses: rtCamp/action-slack-notify@v2
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+          SLACK_USERNAME: 'Security-Audit-Bot'
+          SLACK_TITLE: 'Audit Status: ${{ needs.Security-Audit.result }}'
+          SLACK_MESSAGE: |
+            *Project:* AI-IDS DevSecOps 🛡️
+            *Result:* The security checks finished with status: `${{ needs.Security-Audit.result }}`
+            *Action:* Review logs if there are any failures.
+          SLACK_COLOR: ${{ needs.Security-Audit.result == 'success' && 'good' || 'danger' }}
+
+  # --- المرحلة الثالثة: التنفيذ داخل المعمل (Deployment) ---
+  Deploy-to-GNS3:
+    name: "Deploy to GNS3 Environment"
+    needs: Security-Audit
+    runs-on: self-hosted # هيشتغل على المكنة اللي جوه الـ EVE-NG/GNS3
+    if: success() # مش هيشتغل غير لو الفحص الأمني نجح 100%
+    steps:
+      - name: "Step 1: Checkout Code"
+        uses: actions/checkout@v4
+
+      - name: "Step 2: Execute Ansible Playbook"
+        working-directory: ./ansible
+        run: |
+          ansible-playbook -i inventory.ini site.yml --extra-vars "ansible_ssh_pass=${{ secrets.SARA_PASSWORD }}"

@@ -78,17 +78,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # --- المرحلة الرابعة: التنفيذ (Deployment) - ده اللي بيتربط بالـ GNS3 ---
-  # ملاحظة: دي هتشتغل بس لو عندك Self-hosted Runner شغال ومربوط بـ GNS3
+   # --- المرحلة الرابعة: التنفيذ (Deployment) ---
   Deploy-to-GNS3:
     name: "Deploy to GNS3 Environment"
     needs: Secrets-Scanning
-    runs-on: self-hosted # <--- تأكد إن الـ Runner بتاعك متسطب وجاهز
+    runs-on: self-hosted # <--- لازم تكون مسطب الـ Runner على جهازك
     steps:
       - name: "Step 1: Checkout Code"
         uses: actions/checkout@v4
 
       - name: "Step 2: Execute Ansible Playbook"
+        # هنا التعديل: هنزود سطر الـ extra-vars عشان نبعت الباسورد
         run: |
           cd ansible
-          ansible-playbook -i inventory.ini site.yml
+          ansible-playbook -i inventory.ini site.yml --extra-vars "ansible_ssh_pass=${{ secrets.SARA_PASSWORD }}"

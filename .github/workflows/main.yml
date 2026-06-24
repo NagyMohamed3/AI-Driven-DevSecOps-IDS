@@ -80,20 +80,21 @@ jobs:
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
 # =========================================================================
 # 2️⃣ CONTINUOUS DEPLOYMENT (CD) ZONE - النشر التلقائي جوه المعمل
 # =========================================================================
 
-  # ملاحظة: دي هتشتغل بس لو عندك Self-hosted Runner شغال ومربوط بـ GNS3
+  # ملاحظة: دي هتشتغل بس لو عندك Self-hosted Runner شغال ومربوط بـ GNS3 أو EVE-NG
   Deploy-to-EvENg:
     name: "Deploy to EVENg Environment"
     needs: Secrets-Scanning
-    runs-on: self-hosted # <--- تأكد إن الـ Runner بتاعك متسطب وجاهز
+    runs-on: self-hosted
     steps:
       - name: "Step 1: Checkout Code"
         uses: actions/checkout@v4
 
       - name: "Step 2: Execute Ansible Playbook"
         run: |
-          cd ansible
+          cd ansible/ansible
           ansible-playbook -i inventory.ini site.yml

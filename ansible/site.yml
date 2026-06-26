@@ -1,80 +1,8 @@
-- name: 1. Setup Honeypot Node & Forensic Watermarking
-  hosts: honeypot
-  become: yes
-  tasks:
-    - name: Install Docker
-      apt:
-        name: docker.io
-        state: present
-        update_cache: yes
-
-    - name: Run Cowrie
-      docker_container:
-        name: cowrie-container
-        image: cowrie/cowrie
-        state: started
-        restart_policy: always
-        ports: ["2222:2222"]
-
-    - name: Run Dionaea
-      docker_container:
-        name: dionaea-all
-        image: dinotools/dionaea
-        state: started
-        restart_policy: always
-        ports: ["80:80", "21:21"]
-
-    # --- إضافة تشغيل الـ Watermarking الخاص بالبنات ---
-    - name: Copy Watermark Scripts to Honeypot
-      copy:
-        src: "./{{ item }}"
-        dest: "/opt/{{ item }}"
-        mode: '0755'
-      loop:
-        - "watermarked_cowrie.py"
-        - "verify_logs.py"
-
-    - name: Run Honeypot Watermarking Service
-      shell: "nohup python3 /opt/watermarked_cowrie.py > /var/log/cowrie_watermark.log 2>&1 &"
-      async: 10
-      poll: 0
-
-- name: 2. Setup Suricata Node & AI Log Exporter
-  hosts: suricata
-  become: yes
-  vars:
-    local_script_path: "./log_exporter.py"
-    local_model_path: "./model.pkl"
-    local_scaler_path: "./scaler.pkl"
-    suricata_log_path: "/var/log/suricata/eve.json"
-  tasks:
-    - name: Install Dependencies
-      apt:
-        name: [python3-pip, docker.io]
-        state: present
-        update_cache: yes
-
-    - name: Install AI Libraries
-      pip:
-        name: [prometheus-client, scikit-learn, numpy, pandas]
-        extra_args: "--break-system-packages"
-
-    - name: Copy AI Components
-      copy:
-        src: "{{ item.src }}"
-        dest: "{{ item.dest }}"
-        mode: "{{ item.mode }}"
-      loop:
-        - { src: "{{ local_model_path }}", dest: "/opt/model.pkl", mode: "0644" }
-        - { src: "{{ local_scaler_path }}", dest: "/opt/scaler.pkl", mode: "0644" }
-        - { src: "{{ local_script_path }}", dest: "/opt/log_exporter.py", mode: "0755" }
-
-    - name: Run AI Log Exporter
-      shell: "nohup python3 /opt/log_exporter.py > /var/log/ai_exporter.log 2>&1 &"
-      async: 10
-      poll: 0
-
-- name: 3. Setup Local Monitoring & Webhook Listener (Control Plane)
+---
+# ==========================================================
+# المرحلة 1: إعداد المراقبة والويب هوك على الجهاز المحلي (Control Plane)
+# ==========================================================
+- name: 1. Setup Local Monitoring & Webhook Listener
   hosts: localhost
   connection: local
   become: yes
@@ -85,7 +13,7 @@
         state: present
         update_cache: yes
 
-    - name: Run Prometheus
+    - name: Run Prometheus with Persistence
       docker_container:
         name: prometheus_local
         image: prom/prometheus
@@ -94,9 +22,9 @@
         ports: ["9090:9090"]
         volumes:
           - "{{ playbook_dir }}/prometheus.yml:/etc/prometheus/prometheus.yml"
-          - "prom_data:/prometheus"
+          - "prom_data:/prometheus" # للحفاظ على داتا الـ Metrics
 
-    - name: Run Grafana
+    - name: Run Grafana with Persistence
       docker_container:
         name: grafana_local
         image: grafana/grafana
@@ -105,16 +33,75 @@
         restart_policy: always
         ports: ["3000:3000"]
         volumes:
-          - "grafana_data:/var/lib/grafana"
+          - "grafana_data:/var/lib/grafana" # للحفاظ على الداشبوردات واليوزرز
 
-    # --- إضافة تشغيل الـ Webhook Listener لتأمين خط الـ Closed-Loop ---
-    - name: Copy Asynchronous Webhook Listener to Localhost
+    - name: Copy Webhook Listener Script
       copy:
         src: "./webhook_listener.py"
         dest: "/opt/webhook_listener.py"
         mode: '0755'
 
-    - name: Run Asynchronous Webhook Listener
+    - name: Start Webhook Listener (Background)
       shell: "nohup python3 /opt/webhook_listener.py > /var/log/webhook.log 2>&1 &"
+      async: 10
+      poll: 0
+
+# ==========================================================
+# المرحلة 2: إعداد الـ Honeypot (المصيدة)
+# ==========================================================
+- name: 2. Setup Honeypot Node & Containers
+  hosts: honeypot
+  become: yes
+  tasks:
+    - name: Install Docker on Honeypot
+      apt:
+        name: docker.io
+        state: present
+
+    - name: Run Cowrie (SSH Honeypot)
+      docker_container:
+        name: cowrie-container
+        image: cowrie/cowrie
+        state: started
+        restart_policy: always
+        ports: ["2222:2222"]
+
+    - name: Run Dionaea (Multi-protocol Honeypot)
+      docker_container:
+        name: dionaea-all
+        image: dinotools/dionaea
+        state: started
+        restart_policy: always
+        ports: ["80:80", "21:21"]
+
+# ==========================================================
+# المرحلة 3: إعداد الـ Suricata وتشغيل الـ AI Log Exporter
+# ==========================================================
+- name: 3. Setup Suricata Node & AI Exporter
+  hosts: suricata
+  become: yes
+  tasks:
+    - name: Install AI Dependencies
+      apt:
+        name: [python3-pip, docker.io]
+        state: present
+
+    - name: Install Python Libraries for AI
+      pip:
+        name: [prometheus-client, scikit-learn, numpy, pandas]
+        extra_args: "--break-system-packages"
+
+    - name: Copy AI Components (Model, Scaler, Script)
+      copy:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - { src: "./model.pkl", dest: "/opt/model.pkl", mode: "0644" }
+        - { src: "./scaler.pkl", dest: "/opt/scaler.pkl", mode: "0644" }
+        - { src: "./log_exporter.py", dest: "/opt/log_exporter.py", mode: "0755" }
+
+    - name: Start AI Log Exporter (Background)
+      shell: "nohup python3 /opt/log_exporter.py > /var/log/ai_exporter.log 2>&1 &"
       async: 10
       poll: 0

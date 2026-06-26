@@ -96,5 +96,5 @@ jobs:
 
       - name: "Step 2: Execute Ansible Playbook"
         run: |
-          cd ansible/ansible
+          cd ansible 
           ansible-playbook -i inventory.ini site.yml

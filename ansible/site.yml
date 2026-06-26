@@ -1,18 +1,12 @@
 ---
 # ==========================================================
-# المرحلة 1: إعداد المراقبة والويب هوك على الجهاز المحلي (Control Plane)
+# المرحلة 1: إعداد المراقبة والويب هوك (Control Plane)
 # ==========================================================
 - name: 1. Setup Local Monitoring & Webhook Listener
   hosts: localhost
   connection: local
   become: yes
   tasks:
-    - name: Install Docker on Localhost
-      apt:
-        name: docker.io
-        state: present
-        update_cache: yes
-
     - name: Run Prometheus with Persistence
       docker_container:
         name: prometheus_local
@@ -22,7 +16,7 @@
         ports: ["9090:9090"]
         volumes:
           - "{{ playbook_dir }}/prometheus.yml:/etc/prometheus/prometheus.yml"
-          - "prom_data:/prometheus" # للحفاظ على داتا الـ Metrics
+          - "prom_data:/prometheus"
 
     - name: Run Grafana with Persistence
       docker_container:
@@ -33,15 +27,9 @@
         restart_policy: always
         ports: ["3000:3000"]
         volumes:
-          - "grafana_data:/var/lib/grafana" # للحفاظ على الداشبوردات واليوزرز
+          - "grafana_data:/var/lib/grafana"
 
-    - name: Copy Webhook Listener Script
-      copy:
-        src: "./webhook_listener.py"
-        dest: "/opt/webhook_listener.py"
-        mode: '0755'
-
-    - name: Start Webhook Listener (Background)
+    - name: Start Webhook Listener
       shell: "nohup python3 /opt/webhook_listener.py > /var/log/webhook.log 2>&1 &"
       async: 10
       poll: 0
@@ -53,11 +41,6 @@
   hosts: honeypot
   become: yes
   tasks:
-    - name: Install Docker on Honeypot
-      apt:
-        name: docker.io
-        state: present
-
     - name: Run Cowrie (SSH Honeypot)
       docker_container:
         name: cowrie-container
@@ -79,6 +62,27 @@
 # ==========================================================
 - name: 3. Setup Suricata Node & AI Exporter
   hosts: suricata
+  become: yes
+  tasks:
+    - name: Install Python Libraries for AI
+      pip:
+        name: [prometheus-client, scikit-learn, numpy, pandas]
+        extra_args: "--break-system-packages"
+
+    - name: Copy AI Components
+      copy:
+        src: "./{{ item }}"
+        dest: "/opt/{{ item }}"
+        mode: "0755"
+      loop:
+        - "model.pkl"
+        - "scaler.pkl"
+        - "log_exporter.py"
+
+    - name: Start AI Log Exporter
+      shell: "nohup python3 /opt/log_exporter.py > /var/log/ai_exporter.log 2>&1 &"
+      async: 10
+      poll: 0
   become: yes
   tasks:
     - name: Install AI Dependencies
